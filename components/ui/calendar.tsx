@@ -19,32 +19,37 @@ export function Calendar({
       classNames={{
         months: "flex flex-col space-y-4",
         month: "space-y-3",
-        caption: "flex justify-center pt-1 relative items-center",
+        month_caption: "flex justify-center pt-1 relative items-center",
         caption_label: "text-xs font-medium text-gray-700 dark:text-gray-300",
         nav: "space-x-1 flex items-center",
-        nav_button:
-          "h-6 w-6 flex items-center justify-center rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors opacity-70 hover:opacity-100",
-        nav_button_previous: "absolute left-1",
-        nav_button_next: "absolute right-1",
-        table: "w-full border-collapse",
-        head_row: "flex",
-        head_cell:
+        button_previous:
+          "absolute left-1 h-6 w-6 flex items-center justify-center rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors opacity-70 hover:opacity-100",
+        button_next:
+          "absolute right-1 h-6 w-6 flex items-center justify-center rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors opacity-70 hover:opacity-100",
+        month_grid: "w-full border-collapse",
+        weekdays: "flex",
+        weekday:
           "text-gray-400 dark:text-gray-600 rounded-md w-8 font-normal text-[10px] text-center",
-        row: "flex w-full mt-1",
-        cell: "h-8 w-8 text-center text-xs p-0 relative",
-        day: "h-8 w-8 p-0 font-normal rounded-md text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors aria-selected:opacity-100 flex items-center justify-center w-full",
-        day_selected:
+        week: "flex w-full mt-1",
+        day: "h-8 w-8 text-center text-xs p-0 relative",
+        day_button:
+          "h-8 w-8 p-0 font-normal rounded-md text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors aria-selected:opacity-100 flex items-center justify-center w-full",
+        selected:
           "bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 focus:bg-gray-900 dark:focus:bg-white rounded-md",
-        day_today:
+        today:
           "bg-gray-100 dark:bg-gray-800 font-medium",
-        day_outside: "text-gray-300 dark:text-gray-700 opacity-50",
-        day_disabled: "text-gray-300 dark:text-gray-700 opacity-40 cursor-not-allowed hover:bg-transparent",
-        day_hidden: "invisible",
+        outside: "text-gray-300 dark:text-gray-700 opacity-50",
+        disabled: "text-gray-300 dark:text-gray-700 opacity-40 cursor-not-allowed hover:bg-transparent",
+        hidden: "invisible",
         ...classNames,
       }}
       components={{
-        IconLeft: () => <ChevronLeft size={12} strokeWidth={2} />,
-        IconRight: () => <ChevronRight size={12} strokeWidth={2} />,
+        Chevron: ({ orientation }) =>
+          orientation === "left" ? (
+            <ChevronLeft size={12} strokeWidth={2} />
+          ) : (
+            <ChevronRight size={12} strokeWidth={2} />
+          ),
       }}
       {...props}
     />
