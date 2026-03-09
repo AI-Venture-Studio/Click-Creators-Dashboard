@@ -8,7 +8,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
   title: "Click Creators Dashboard",
-  description: "Financial Dashboard",
+  description: "Built by AIVS, 2026",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
