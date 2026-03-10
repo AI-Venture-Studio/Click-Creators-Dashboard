@@ -539,8 +539,8 @@ function RunningRow({
           )}
           {!!campaign.image_count && campaign.image_count > 0 && (
             <span className="flex items-center gap-0.5 text-[11px] text-gray-400 dark:text-gray-500 flex-shrink-0">
-              <ImageIcon size={10} strokeWidth={1.8} />
-              {campaign.image_count} image{campaign.image_count > 1 ? "s" : ""}
+              {campaign.post_type === "reel" ? <Film size={10} strokeWidth={1.8} /> : <ImageIcon size={10} strokeWidth={1.8} />}
+              {campaign.image_count} {campaign.post_type === "reel" ? "video" : "image"}{campaign.image_count > 1 ? "s" : ""}
             </span>
           )}
         </div>
@@ -648,8 +648,8 @@ function QueueRow({
         )}
         {!!campaign.image_count && campaign.image_count > 0 && (
           <span className="flex items-center gap-0.5 text-[11px] text-gray-400 dark:text-gray-500 flex-shrink-0">
-            <ImageIcon size={10} strokeWidth={1.8} />
-            {campaign.image_count} image{campaign.image_count > 1 ? "s" : ""}
+            {campaign.post_type === "reel" ? <Film size={10} strokeWidth={1.8} /> : <ImageIcon size={10} strokeWidth={1.8} />}
+            {campaign.image_count} {campaign.post_type === "reel" ? "video" : "image"}{campaign.image_count > 1 ? "s" : ""}
           </span>
         )}
       </div>
@@ -725,8 +725,8 @@ function StaticRow({
         )}
         {!!campaign.image_count && campaign.image_count > 0 && (
           <span className="flex items-center gap-0.5 text-[11px] text-gray-400 dark:text-gray-500 flex-shrink-0">
-            <ImageIcon size={10} strokeWidth={1.8} />
-            {campaign.image_count} image{campaign.image_count > 1 ? "s" : ""}
+            {campaign.post_type === "reel" ? <Film size={10} strokeWidth={1.8} /> : <ImageIcon size={10} strokeWidth={1.8} />}
+            {campaign.image_count} {campaign.post_type === "reel" ? "video" : "image"}{campaign.image_count > 1 ? "s" : ""}
           </span>
         )}
       </div>
