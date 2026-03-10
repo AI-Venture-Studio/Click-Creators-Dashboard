@@ -443,6 +443,7 @@ export default function ConfigureCommentsTab() {
           platform,
           user_accounts: userAccounts,
           target_profiles: targetProfiles,
+          targeting_mode: targetingMode,
           custom_comment: customComment || null,
           media_attachments: mediaAttachments.length > 0 ? mediaAttachments : null,
           number_of_posts: targetingMode === "posts" ? numberOfPosts : null,

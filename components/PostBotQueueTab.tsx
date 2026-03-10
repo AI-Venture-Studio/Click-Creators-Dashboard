@@ -15,6 +15,7 @@ import {
   ListOrdered,
   AlertTriangle,
   CalendarIcon,
+  Lock,
 } from "lucide-react";
 import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
@@ -519,6 +520,7 @@ function QueueRow({
   campaign,
   position,
   isDragging,
+  lockedBy,
   onDragStart,
   onDragOver,
   onDragEnd,
@@ -530,6 +532,7 @@ function QueueRow({
   campaign: PostCampaign;
   position: number;
   isDragging: boolean;
+  lockedBy: Record<string, string>;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDragEnd: () => void;
@@ -607,13 +610,25 @@ function QueueRow({
 
       {/* Actions */}
       <div className="flex items-center gap-1 flex-shrink-0">
-        <button
-          onClick={onStart}
-          className="p-1 text-green-600 hover:text-green-700 dark:text-green-500 dark:hover:text-green-400 transition-colors"
-          title="Start post campaign"
-        >
-          <Play size={13} strokeWidth={1.8} fill="currentColor" />
-        </button>
+        {Object.keys(lockedBy).length > 0 ? (
+          <button
+            disabled
+            className="p-1 text-amber-500 dark:text-amber-400 cursor-not-allowed opacity-75"
+            title={Object.entries(lockedBy)
+              .map(([u, owner]) => `@${u} in use by ${String(owner).split(":")[0]}`)
+              .join(", ")}
+          >
+            <Lock size={13} strokeWidth={1.8} />
+          </button>
+        ) : (
+          <button
+            onClick={onStart}
+            className="p-1 text-green-600 hover:text-green-700 dark:text-green-500 dark:hover:text-green-400 transition-colors"
+            title="Start post campaign"
+          >
+            <Play size={13} strokeWidth={1.8} fill="currentColor" />
+          </button>
+        )}
         <ActionMenu status="not-started" onEdit={onEdit} onRemove={onRemove} />
       </div>
     </div>
@@ -1157,6 +1172,63 @@ export default function PostBotQueueTab() {
 
   useEffect(() => { fetchCampaigns(); }, [fetchCampaigns]);
 
+  // ─── Lock state ────────────────────────────────────────────────────────────
+
+  const [lockedAccounts, setLockedAccounts] = useState<Record<string, string>>({});
+
+  const getCampaignLockInfo = useCallback((campaign: PostCampaign) => {
+    const locked: Record<string, string> = {};
+    for (const username of campaign.user_accounts) {
+      const key = `${username}:${campaign.platform}`;
+      if (lockedAccounts[key]) {
+        locked[username] = lockedAccounts[key];
+      }
+    }
+    return locked;
+  }, [lockedAccounts]);
+
+  // Poll lock state for queued campaigns
+  useEffect(() => {
+    const hasRunning = items.some((c) => c.status === "in-progress");
+    const queued = items.filter((c) => c.status === "not-started");
+    if (!hasRunning || queued.length === 0) {
+      setLockedAccounts({});
+      return;
+    }
+
+    const pollLocks = async () => {
+      const byPlatform: Record<string, Set<string>> = {};
+      for (const c of queued) {
+        if (!byPlatform[c.platform]) byPlatform[c.platform] = new Set();
+        for (const u of c.user_accounts) byPlatform[c.platform].add(u);
+      }
+
+      const newLocked: Record<string, string> = {};
+      for (const [platform, usernames] of Object.entries(byPlatform)) {
+        try {
+          const res = await fetch(`${BOT_URL}/api/locked-accounts`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ usernames: [...usernames], platform }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            for (const [username, owner] of Object.entries(data.locked || {})) {
+              newLocked[`${username}:${platform}`] = owner as string;
+            }
+          }
+        } catch {
+          // Server unreachable — don't update lock state
+        }
+      }
+      setLockedAccounts(newLocked);
+    };
+
+    pollLocks();
+    const interval = setInterval(pollLocks, 10_000);
+    return () => clearInterval(interval);
+  }, [items]);
+
   // ─── Derived lists ──────────────────────────────────────────────────────────
 
   const running    = items.filter((c) => c.status === "in-progress");
@@ -1559,6 +1631,7 @@ export default function PostBotQueueTab() {
                           campaign={c}
                           position={globalIdx + 1}
                           isDragging={isDraggingId === c.id}
+                          lockedBy={getCampaignLockInfo(c)}
                           onDragStart={(e) => handleDragStart(c.id, e)}
                           onDragOver={(e) => handleDragOver(e, c.id, nextId)}
                           onDragEnd={handleDragEnd}

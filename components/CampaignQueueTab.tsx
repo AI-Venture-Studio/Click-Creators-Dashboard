@@ -15,6 +15,9 @@ import {
   ListOrdered,
   AlertTriangle,
   CalendarIcon,
+  Lock,
+  Search,
+  Paperclip,
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -30,6 +33,16 @@ type CampaignStatus = "not-started" | "in-progress" | "completed" | "failed" | "
 type TargetingMode = "posts" | "date";
 type TabId = "queued" | "completed" | "failed" | "aborted";
 
+interface Account {
+  username: string;
+  is_active: boolean;
+}
+
+interface AttachmentPreview {
+  file: File;
+  previewUrl: string;
+}
+
 interface CommentCampaign {
   id: string;
   platform: Platform;
@@ -39,6 +52,7 @@ interface CommentCampaign {
   user_accounts: string[];
   queue_position: number;
   image_count?: number;
+  media_attachments?: { storage_path: string; file_name: string }[];
   targeting_mode: TargetingMode;
   number_of_posts?: number;
   target_date?: string;
@@ -75,6 +89,26 @@ const PLATFORM_FILTER_ITEMS = [
 
 const PAGE_SIZE = 10;
 
+const ATTACHMENT_CONFIG: Record<
+  string,
+  { maxFiles: number; maxSizeMB: number; formats: string; accept: string }
+> = {
+  x: {
+    maxFiles: 4,
+    maxSizeMB: 5,
+    formats: "JPEG, PNG, GIF, WEBP",
+    accept: "image/jpeg,image/png,image/gif,image/webp",
+  },
+  threads: {
+    maxFiles: 10,
+    maxSizeMB: 8,
+    formats: "JPEG, PNG, WEBP",
+    accept: "image/jpeg,image/png,image/webp",
+  },
+};
+
+const SUPPORTS_ATTACHMENTS = (p: Platform | string) => p === "x" || p === "threads";
+
 // ─── DB → UI Mapper ──────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,6 +122,7 @@ function mapDbToCampaign(row: any): CommentCampaign {
     user_accounts: row.user_accounts || [],
     queue_position: row.queue_position || 0,
     image_count: row.media_attachments?.length || 0,
+    media_attachments: row.media_attachments || [],
     targeting_mode: row.number_of_posts && row.number_of_posts > 0 ? "posts" : "date",
     number_of_posts: row.number_of_posts,
     target_date: row.target_date,
@@ -160,6 +195,37 @@ function OutlineBadge({
           <X size={10} strokeWidth={2.5} />
         </button>
       )}
+    </span>
+  );
+}
+
+// ─── Account Badge ───────────────────────────────────────────────────────────
+
+function AccountBadge({
+  username,
+  isActive,
+  onRemove,
+}: {
+  username: string;
+  isActive: boolean;
+  onRemove: () => void;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium ${
+        isActive
+          ? "bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800"
+          : "bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800"
+      }`}
+    >
+      @{username}
+      <button
+        onClick={onRemove}
+        className="ml-0.5 hover:opacity-70 transition-opacity"
+        aria-label={`Remove ${username}`}
+      >
+        <X size={10} strokeWidth={2.5} />
+      </button>
     </span>
   );
 }
@@ -480,6 +546,7 @@ function QueueRow({
   campaign,
   position,
   isDragging,
+  lockedBy,
   onDragStart,
   onDragOver,
   onDragEnd,
@@ -491,6 +558,7 @@ function QueueRow({
   campaign: CommentCampaign;
   position: number;
   isDragging: boolean;
+  lockedBy: Record<string, string>;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDragEnd: () => void;
@@ -569,13 +637,25 @@ function QueueRow({
 
       {/* Actions */}
       <div className="flex items-center gap-1 flex-shrink-0">
-        <button
-          onClick={onStart}
-          className="p-1 text-green-600 hover:text-green-700 dark:text-green-500 dark:hover:text-green-400 transition-colors"
-          title="Start campaign"
-        >
-          <Play size={13} strokeWidth={1.8} fill="currentColor" />
-        </button>
+        {Object.keys(lockedBy).length > 0 ? (
+          <button
+            disabled
+            className="p-1 text-amber-500 dark:text-amber-400 cursor-not-allowed opacity-75"
+            title={Object.entries(lockedBy)
+              .map(([u, owner]) => `@${u} in use by ${String(owner).split(":")[0]}`)
+              .join(", ")}
+          >
+            <Lock size={13} strokeWidth={1.8} />
+          </button>
+        ) : (
+          <button
+            onClick={onStart}
+            className="p-1 text-green-600 hover:text-green-700 dark:text-green-500 dark:hover:text-green-400 transition-colors"
+            title="Start campaign"
+          >
+            <Play size={13} strokeWidth={1.8} fill="currentColor" />
+          </button>
+        )}
         <ActionMenu status="not-started" onEdit={onEdit} onRemove={onRemove} />
       </div>
     </div>
@@ -781,9 +861,21 @@ function EditSheet({
     target_date: undefined,
     post_delay: 15,
   });
-  const [accountInput, setAccountInput] = useState("");
   const [profileInput, setProfileInput] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Attachment state
+  const [existingAttachments, setExistingAttachments] = useState<{ storage_path: string; file_name: string }[]>([]);
+  const [newAttachments, setNewAttachments] = useState<AttachmentPreview[]>([]);
+  const [removedPaths, setRemovedPaths] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Account picker state
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [accountSearch, setAccountSearch] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
   // Sync form when campaign changes
   useEffect(() => {
@@ -797,16 +889,50 @@ function EditSheet({
       target_date: campaign.target_date ? new Date(campaign.target_date) : undefined,
       post_delay: campaign.post_delay,
     });
-    setAccountInput("");
+    setExistingAttachments(campaign.media_attachments ? [...campaign.media_attachments] : []);
+    setNewAttachments([]);
+    setRemovedPaths([]);
     setProfileInput("");
+    setAccountSearch("");
+    setPickerOpen(false);
   }, [campaign]);
 
-  const addAccount = () => {
-    const val = accountInput.trim().replace(/^@/, "");
-    if (!val || form.user_accounts.includes(val)) return;
-    setForm((f) => ({ ...f, user_accounts: [...f.user_accounts, val] }));
-    setAccountInput("");
-  };
+  // Fetch accounts when sheet opens
+  useEffect(() => {
+    if (!open || !campaign) return;
+    setAccountsLoading(true);
+    (async () => {
+      const { data, error } = await supabase
+        .from("social_accounts")
+        .select("username, is_active")
+        .eq("platform", campaign.platform);
+      if (error) {
+        toast.error(`Failed to load accounts: ${error.message}`);
+        setAccounts([]);
+      } else {
+        setAccounts(data ?? []);
+      }
+      setAccountsLoading(false);
+    })();
+  }, [open, campaign]);
+
+  // Close account picker on outside click
+  useEffect(() => {
+    if (!pickerOpen) return;
+    function handler(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [pickerOpen]);
+
+  const filteredAccounts = accounts.filter(
+    (a) =>
+      a.username.toLowerCase().includes(accountSearch.toLowerCase()) &&
+      !form.user_accounts.includes(a.username)
+  );
 
   const addProfile = () => {
     const val = profileInput.trim().replace(/^@/, "");
@@ -815,45 +941,107 @@ function EditSheet({
     setProfileInput("");
   };
 
+  // Attachment handlers
+  const supportsAttachments = campaign ? SUPPORTS_ATTACHMENTS(campaign.platform) : false;
+  const attachCfg = campaign ? ATTACHMENT_CONFIG[campaign.platform] ?? null : null;
+  const totalAttachments = existingAttachments.length + newAttachments.length;
+
+  const handleFiles = (files: FileList | null) => {
+    if (!files || !attachCfg) return;
+    const remaining = attachCfg.maxFiles - totalAttachments;
+    const next: AttachmentPreview[] = [];
+    for (let i = 0; i < Math.min(files.length, remaining); i++) {
+      const file = files[i];
+      if (file.size > attachCfg.maxSizeMB * 1024 * 1024) continue;
+      next.push({ file, previewUrl: URL.createObjectURL(file) });
+    }
+    setNewAttachments((prev) => [...prev, ...next]);
+  };
+
+  const removeExistingAttachment = (index: number) => {
+    const att = existingAttachments[index];
+    setRemovedPaths((prev) => [...prev, att.storage_path]);
+    setExistingAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const removeNewAttachment = (index: number) => {
+    setNewAttachments((prev) => {
+      URL.revokeObjectURL(prev[index].previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const clampDelay = (v: number) => Math.min(20, Math.max(8, v));
+
   const handleSave = async () => {
     if (!campaign) return;
     setSaving(true);
 
-    const updates = {
-      custom_comment: form.comment || null,
-      user_accounts: form.user_accounts,
-      target_profiles: form.target_profiles,
-      number_of_posts: form.targeting_mode === "posts" ? form.number_of_posts : null,
-      target_date: form.targeting_mode === "date" && form.target_date ? form.target_date.toISOString() : null,
-      post_delay: form.post_delay,
-      updated_at: new Date().toISOString(),
-    };
+    try {
+      // 1. Upload new attachments
+      const uploadedMedia: { storage_path: string; file_name: string }[] = [];
+      for (const att of newAttachments) {
+        const storagePath = `campaigns/${campaign.id}/${Date.now()}_${att.file.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from("campaign-media")
+          .upload(storagePath, att.file);
+        if (uploadError) {
+          toast.error(`Failed to upload ${att.file.name}: ${uploadError.message}`);
+          setSaving(false);
+          return;
+        }
+        uploadedMedia.push({ storage_path: storagePath, file_name: att.file.name });
+      }
 
-    const { error } = await supabase
-      .from("comment_campaigns")
-      .update(updates)
-      .eq("campaign_id", campaign.id);
+      // 2. Delete removed attachments from storage
+      if (removedPaths.length > 0) {
+        await supabase.storage.from("campaign-media").remove(removedPaths);
+      }
 
-    if (error) {
-      toast.error(`Failed to save changes: ${error.message}`);
+      // 3. Build final media array
+      const finalMedia = [...existingAttachments, ...uploadedMedia];
+
+      // 4. Update DB
+      const updates = {
+        custom_comment: form.comment || null,
+        user_accounts: form.user_accounts,
+        target_profiles: form.target_profiles,
+        number_of_posts: form.targeting_mode === "posts" ? form.number_of_posts : null,
+        target_date: form.targeting_mode === "date" && form.target_date ? form.target_date.toISOString() : null,
+        post_delay: form.post_delay,
+        media_attachments: finalMedia.length > 0 ? finalMedia : null,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from("comment_campaigns")
+        .update(updates)
+        .eq("campaign_id", campaign.id);
+
+      if (error) {
+        toast.error(`Failed to save changes: ${error.message}`);
+        setSaving(false);
+        return;
+      }
+
+      onSave(campaign.id, {
+        comment: form.comment,
+        user_accounts: form.user_accounts,
+        target_profiles: form.target_profiles,
+        targeting_mode: form.targeting_mode,
+        number_of_posts: form.number_of_posts,
+        target_date: form.target_date?.toISOString(),
+        post_delay: form.post_delay,
+        media_attachments: finalMedia.length > 0 ? finalMedia : undefined,
+        image_count: finalMedia.length,
+      });
+      toast.success("Campaign updated");
+    } catch {
+      toast.error("Something went wrong. Try again.");
+    } finally {
       setSaving(false);
-      return;
     }
-
-    onSave(campaign.id, {
-      comment: form.comment,
-      user_accounts: form.user_accounts,
-      target_profiles: form.target_profiles,
-      targeting_mode: form.targeting_mode,
-      number_of_posts: form.number_of_posts,
-      target_date: form.target_date?.toISOString(),
-      post_delay: form.post_delay,
-    });
-    toast.success("Campaign updated");
-    setSaving(false);
   };
-
-  const clampDelay = (v: number) => Math.min(60, Math.max(8, v));
 
   return (
     <>
@@ -890,56 +1078,297 @@ function EditSheet({
         {/* ── Scrollable Body ───────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto">
 
-          {/* Comment */}
+          {/* Post Targeting */}
           <div className="px-8 py-6 border-b border-gray-100 dark:border-gray-800">
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-              Comment
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-3">
+              Post Targeting
             </label>
-            <textarea
-              value={form.comment}
-              onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
-              rows={3}
-              placeholder="Enter comment text…"
-              className="w-full resize-none text-sm bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5 text-gray-700 dark:text-gray-300 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600"
-            />
-            <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-1.5">
-              {form.comment.length} characters
-            </p>
+            <div className="flex flex-col gap-3">
+
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="edit-targeting"
+                  value="posts"
+                  checked={form.targeting_mode === "posts"}
+                  onChange={() => setForm((f) => ({ ...f, targeting_mode: "posts" }))}
+                  className="mt-0.5 accent-gray-700 dark:accent-gray-300"
+                />
+                <div className="flex-1">
+                  <span className="text-xs text-gray-700 dark:text-gray-300">Number of posts</span>
+                  {form.targeting_mode === "posts" && (
+                    <div className="flex items-center gap-1.5 mt-1.5">
+                      <input
+                        type="number"
+                        min={1}
+                        value={form.number_of_posts}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, number_of_posts: Math.max(1, parseInt(e.target.value) || 1) }))
+                        }
+                        className="w-16 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1 text-gray-700 dark:text-gray-300 text-center focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600"
+                      />
+                      <span className="text-xs text-gray-400 dark:text-gray-500">latest posts</span>
+                    </div>
+                  )}
+                </div>
+              </label>
+
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="edit-targeting"
+                  value="date"
+                  checked={form.targeting_mode === "date"}
+                  onChange={() => setForm((f) => ({ ...f, targeting_mode: "date" }))}
+                  className="mt-0.5 accent-gray-700 dark:accent-gray-300"
+                />
+                <div className="flex-1">
+                  <span className="text-xs text-gray-700 dark:text-gray-300">Posts from date to now</span>
+                  {form.targeting_mode === "date" && (
+                    <div className="mt-1.5">
+                      <DatePicker
+                        value={form.target_date}
+                        onChange={(d) => setForm((f) => ({ ...f, target_date: d }))}
+                      />
+                    </div>
+                  )}
+                </div>
+              </label>
+
+            </div>
           </div>
 
-          {/* User Accounts */}
+          {/* Comment + Attachments */}
           <div className="px-8 py-6 border-b border-gray-100 dark:border-gray-800">
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-              User Accounts
+              Custom Comment
             </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={accountInput}
-                onChange={(e) => setAccountInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAccount(); } }}
-                placeholder="@username"
-                className="flex-1 text-xs bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 text-gray-700 dark:text-gray-300 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600"
+            <div className="relative">
+              <textarea
+                value={form.comment}
+                onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
+                placeholder="Enter the comment you want to post on targeted profiles…"
+                className="w-full resize-none min-h-[100px] text-sm bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5 pb-9 text-gray-700 dark:text-gray-300 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600"
               />
+              {supportsAttachments && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={!!attachCfg && totalAttachments >= attachCfg.maxFiles}
+                    className="absolute bottom-2.5 right-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors disabled:opacity-30"
+                    title="Attach image"
+                  >
+                    <Paperclip size={14} strokeWidth={1.8} />
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept={attachCfg?.accept}
+                    className="hidden"
+                    onChange={(e) => {
+                      handleFiles(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between mt-1.5">
+              <span className="text-[11px] text-gray-400 dark:text-gray-600">
+                {form.comment.length} characters
+              </span>
+              {attachCfg && (
+                <span className="text-[11px] text-gray-400 dark:text-gray-600">
+                  {totalAttachments}/{attachCfg.maxFiles} images &bull; {attachCfg.formats} &bull; Max{" "}
+                  {attachCfg.maxSizeMB}MB each
+                </span>
+              )}
+            </div>
+
+            {/* Existing attachment thumbnails */}
+            {(existingAttachments.length > 0 || newAttachments.length > 0) && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {existingAttachments.map((a, i) => {
+                  const { data } = supabase.storage
+                    .from("campaign-media")
+                    .getPublicUrl(a.storage_path);
+                  return (
+                    <div
+                      key={`existing-${i}`}
+                      className="relative group w-16 h-16 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={data.publicUrl} alt={a.file_name} className="w-full h-full object-cover" />
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5">
+                        <span className="text-[8px] text-white truncate block leading-tight">
+                          {a.file_name}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => removeExistingAttachment(i)}
+                        className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X size={8} strokeWidth={3} />
+                      </button>
+                    </div>
+                  );
+                })}
+                {newAttachments.map((a, i) => (
+                  <div
+                    key={`new-${i}`}
+                    className="relative group w-16 h-16 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={a.previewUrl} alt={a.file.name} className="w-full h-full object-cover" />
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5">
+                      <span className="text-[8px] text-white truncate block leading-tight">
+                        {a.file.name}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => removeNewAttachment(i)}
+                      className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X size={8} strokeWidth={3} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Time Between Comments */}
+          <div className="px-8 py-6 border-b border-gray-100 dark:border-gray-800">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                  Time Between Comments
+                </p>
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                  Delay applied between commenting on posts (randomized ±20%)
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0 ml-4">
+                <input
+                  type="number"
+                  min={8}
+                  max={20}
+                  value={form.post_delay}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, post_delay: clampDelay(parseInt(e.target.value) || 15) }))
+                  }
+                  className="w-16 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1 text-gray-700 dark:text-gray-300 text-center focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600"
+                />
+                <span className="text-xs text-gray-400 dark:text-gray-500">sec</span>
+              </div>
+            </div>
+            <input
+              type="range"
+              min={8}
+              max={20}
+              step={1}
+              value={form.post_delay}
+              onChange={(e) => setForm((f) => ({ ...f, post_delay: parseInt(e.target.value) }))}
+              className="w-full accent-gray-700 dark:accent-gray-300 cursor-pointer"
+            />
+            <div className="flex justify-between mt-1.5">
+              <span className="text-[11px] text-gray-400 dark:text-gray-500">Faster (8s)</span>
+              <span className="text-[11px] text-gray-400 dark:text-gray-500">Safer (20s)</span>
+            </div>
+          </div>
+
+          {/* Your User Accounts */}
+          <div className="px-8 py-6 border-b border-gray-100 dark:border-gray-800">
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
+              Your User Accounts
+            </p>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-3">
+              Accounts that will post the comments
+            </p>
+
+            <div className="relative" ref={pickerRef}>
               <button
                 type="button"
-                onClick={addAccount}
-                className="text-xs px-4 py-1.5 bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 rounded-lg hover:bg-gray-700 dark:hover:bg-gray-300 transition-colors font-medium"
+                disabled={accountsLoading}
+                onClick={() => setPickerOpen((v) => !v)}
+                className="w-full flex items-center justify-between text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Add
+                <span className="text-xs">
+                  {accountsLoading
+                    ? "Loading accounts…"
+                    : accounts.length === 0
+                    ? "No accounts available — add accounts first"
+                    : "Search and select account"}
+                </span>
+                <ChevronDown size={13} strokeWidth={1.8} className="text-gray-400 flex-shrink-0" />
               </button>
+
+              {pickerOpen && (
+                <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl shadow-sm overflow-hidden">
+                  <div className="p-2 border-b border-gray-100 dark:border-gray-800">
+                    <div className="relative">
+                      <Search
+                        size={12}
+                        strokeWidth={1.8}
+                        className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Search accounts…"
+                        value={accountSearch}
+                        onChange={(e) => setAccountSearch(e.target.value)}
+                        autoFocus
+                        className="w-full text-xs bg-gray-50 dark:bg-gray-800 rounded-lg pl-7 pr-3 py-1.5 text-gray-700 dark:text-gray-300 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:outline-none border-0"
+                      />
+                    </div>
+                  </div>
+                  <div className="max-h-[200px] overflow-y-auto">
+                    {filteredAccounts.length === 0 ? (
+                      <p className="text-[11px] text-gray-400 dark:text-gray-600 px-3 py-3">
+                        No accounts found
+                      </p>
+                    ) : (
+                      filteredAccounts.map((a) => (
+                        <button
+                          key={a.username}
+                          type="button"
+                          className="w-full text-left text-xs px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 transition-colors duration-150"
+                          onClick={() => {
+                            setForm((f) => ({ ...f, user_accounts: [...f.user_accounts, a.username] }));
+                            setPickerOpen(false);
+                            setAccountSearch("");
+                          }}
+                        >
+                          @{a.username}
+                          {!a.is_active && (
+                            <span className="ml-1.5 text-[10px] text-red-400">(inactive)</span>
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
+
             {form.user_accounts.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-3">
-                {form.user_accounts.map((u) => (
-                  <OutlineBadge
-                    key={u}
-                    label={`@${u}`}
-                    onRemove={() =>
-                      setForm((f) => ({ ...f, user_accounts: f.user_accounts.filter((x) => x !== u) }))
-                    }
-                  />
-                ))}
+                {form.user_accounts.map((u) => {
+                  const acc = accounts.find((a) => a.username === u);
+                  return (
+                    <AccountBadge
+                      key={u}
+                      username={u}
+                      isActive={acc?.is_active ?? true}
+                      onRemove={() =>
+                        setForm((f) => ({ ...f, user_accounts: f.user_accounts.filter((x) => x !== u) }))
+                      }
+                    />
+                  );
+                })}
               </div>
             )}
           </div>
@@ -992,116 +1421,6 @@ function EditSheet({
                 ))}
               </div>
             )}
-          </div>
-
-          {/* Targeting Mode */}
-          <div className="px-8 py-6 border-b border-gray-100 dark:border-gray-800">
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-3">
-              Post Targeting
-            </label>
-            <div className="flex flex-col gap-3">
-
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="edit-targeting"
-                  value="posts"
-                  checked={form.targeting_mode === "posts"}
-                  onChange={() => setForm((f) => ({ ...f, targeting_mode: "posts" }))}
-                  className="mt-0.5 accent-gray-700 dark:accent-gray-300"
-                />
-                <div className="flex-1">
-                  <span className="text-xs text-gray-700 dark:text-gray-300">Number of posts</span>
-                  {form.targeting_mode === "posts" && (
-                    <div className="mt-2">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                          {form.number_of_posts} posts
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={1}
-                        max={50}
-                        step={1}
-                        value={form.number_of_posts}
-                        onChange={(e) =>
-                          setForm((f) => ({ ...f, number_of_posts: parseInt(e.target.value) }))
-                        }
-                        className="w-full accent-gray-700 dark:accent-gray-300 cursor-pointer"
-                      />
-                      <div className="flex justify-between mt-1">
-                        <span className="text-[11px] text-gray-400 dark:text-gray-500">1</span>
-                        <span className="text-[11px] text-gray-400 dark:text-gray-500">50</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </label>
-
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="edit-targeting"
-                  value="date"
-                  checked={form.targeting_mode === "date"}
-                  onChange={() => setForm((f) => ({ ...f, targeting_mode: "date" }))}
-                  className="mt-0.5 accent-gray-700 dark:accent-gray-300"
-                />
-                <div className="flex-1">
-                  <span className="text-xs text-gray-700 dark:text-gray-300">Posts from date to now</span>
-                  {form.targeting_mode === "date" && (
-                    <div className="mt-1.5">
-                      <DatePicker
-                        value={form.target_date}
-                        onChange={(d) => setForm((f) => ({ ...f, target_date: d }))}
-                      />
-                    </div>
-                  )}
-                </div>
-              </label>
-
-            </div>
-          </div>
-
-          {/* Post Delay */}
-          <div className="px-8 py-6">
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                  Delay Between Comments
-                </p>
-                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
-                  Randomized ±20%
-                </p>
-              </div>
-              <div className="flex items-center gap-1.5 flex-shrink-0 ml-4">
-                <input
-                  type="number"
-                  min={8}
-                  max={60}
-                  value={form.post_delay}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, post_delay: clampDelay(parseInt(e.target.value) || 15) }))
-                  }
-                  className="w-16 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1 text-gray-700 dark:text-gray-300 text-center focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600"
-                />
-                <span className="text-xs text-gray-400 dark:text-gray-500">sec</span>
-              </div>
-            </div>
-            <input
-              type="range"
-              min={8}
-              max={60}
-              step={1}
-              value={form.post_delay}
-              onChange={(e) => setForm((f) => ({ ...f, post_delay: parseInt(e.target.value) }))}
-              className="w-full accent-gray-700 dark:accent-gray-300 cursor-pointer"
-            />
-            <div className="flex justify-between mt-1.5">
-              <span className="text-[11px] text-gray-400 dark:text-gray-500">Faster (8s)</span>
-              <span className="text-[11px] text-gray-400 dark:text-gray-500">Safer (60s)</span>
-            </div>
           </div>
 
         </div>
@@ -1181,6 +1500,63 @@ export default function CampaignQueueTab() {
   }, []);
 
   useEffect(() => { fetchCampaigns(); }, [fetchCampaigns]);
+
+  // ─── Lock state ────────────────────────────────────────────────────────────
+
+  const [lockedAccounts, setLockedAccounts] = useState<Record<string, string>>({});
+
+  const getCampaignLockInfo = useCallback((campaign: CommentCampaign) => {
+    const locked: Record<string, string> = {};
+    for (const username of campaign.user_accounts) {
+      const key = `${username}:${campaign.platform}`;
+      if (lockedAccounts[key]) {
+        locked[username] = lockedAccounts[key];
+      }
+    }
+    return locked;
+  }, [lockedAccounts]);
+
+  // Poll lock state for queued campaigns
+  useEffect(() => {
+    const hasRunning = items.some((c) => c.status === "in-progress");
+    const queued = items.filter((c) => c.status === "not-started");
+    if (!hasRunning || queued.length === 0) {
+      setLockedAccounts({});
+      return;
+    }
+
+    const pollLocks = async () => {
+      const byPlatform: Record<string, Set<string>> = {};
+      for (const c of queued) {
+        if (!byPlatform[c.platform]) byPlatform[c.platform] = new Set();
+        for (const u of c.user_accounts) byPlatform[c.platform].add(u);
+      }
+
+      const newLocked: Record<string, string> = {};
+      for (const [platform, usernames] of Object.entries(byPlatform)) {
+        try {
+          const res = await fetch(`${BOT_URL}/api/locked-accounts`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ usernames: [...usernames], platform }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            for (const [username, owner] of Object.entries(data.locked || {})) {
+              newLocked[`${username}:${platform}`] = owner as string;
+            }
+          }
+        } catch {
+          // Server unreachable — don't update lock state
+        }
+      }
+      setLockedAccounts(newLocked);
+    };
+
+    pollLocks();
+    const interval = setInterval(pollLocks, 10_000);
+    return () => clearInterval(interval);
+  }, [items]);
 
   // ─── Derived lists ──────────────────────────────────────────────────────────
 
@@ -1576,6 +1952,7 @@ export default function CampaignQueueTab() {
                           campaign={c}
                           position={globalIdx + 1}
                           isDragging={isDraggingId === c.id}
+                          lockedBy={getCampaignLockInfo(c)}
                           onDragStart={(e) => handleDragStart(c.id, e)}
                           onDragOver={(e) => handleDragOver(e, c.id, nextId)}
                           onDragEnd={handleDragEnd}

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  ArrowRight, Plus, X, LayoutGrid, List, ChevronDown,
+  Plus, X, LayoutGrid, List, ChevronDown,
   Search, MoreVertical, Pencil, Trash2,
   Loader2, Users, Info,
 } from "lucide-react";
@@ -46,8 +46,8 @@ function IntegrationIcon({
             transition: "opacity 0.18s ease",
           }}
         >
-          <ArrowRight
-            size={28}
+          <Pencil
+            size={24}
             strokeWidth={1.8}
             className="text-white"
             style={{
@@ -66,6 +66,7 @@ function IntegrationIcon({
 const integrations = [
   { id: "dolphin-anty", iconSrc: "/dolphin-anty.png", name: "Dolphin Anty" },
   { id: "airtable",     iconSrc: "/airtable.png",     name: "Airtable"     },
+  { id: "apify",        iconSrc: "/apify.png",        name: "Apify"        },
 ];
 
 function IntegrationsSection() {
@@ -669,13 +670,13 @@ function DeleteConfirmDialog({
 
 // ─── List View ────────────────────────────────────────────────────────────────
 
-function AccountsListView({ onAccountsChange }: { onAccountsChange: () => void }) {
+function AccountsListView({ onAccountsChange, initialPlatform, initialFilter }: { onAccountsChange: () => void; initialPlatform?: SocialPlatform; initialFilter?: ActiveFilter }) {
   const [accounts, setAccounts]               = useState<SocialAccount[]>([]);
-  const [selectedPlatform, setSelectedPlatform] = useState<SocialPlatform>("instagram");
+  const [selectedPlatform, setSelectedPlatform] = useState<SocialPlatform>(initialPlatform ?? "instagram");
   const [platformCounts, setPlatformCounts]   = useState<Record<SocialPlatform, number>>({ instagram: 0, x: 0, threads: 0, tiktok: 0 });
   const [isLoading, setIsLoading]             = useState(true);
   const [searchQuery, setSearchQuery]         = useState("");
-  const [activeFilter, setActiveFilter]       = useState<ActiveFilter>("all");
+  const [activeFilter, setActiveFilter]       = useState<ActiveFilter>(initialFilter ?? "all");
   const [isAddModalOpen, setIsAddModalOpen]   = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen]       = useState(false);
@@ -924,8 +925,18 @@ const platforms = [
   { id: "tiktok",    name: "TikTok" },
 ];
 
+// Map card platform IDs to list-view SocialPlatform IDs
+const cardToListPlatform: Record<string, SocialPlatform> = {
+  instagram: "instagram",
+  twitter:   "x",
+  threads:   "threads",
+  tiktok:    "tiktok",
+};
+
 function AccountSetupSection() {
   const [viewMode, setViewMode]       = useState<"cards" | "list">("cards");
+  const [listInitialPlatform, setListInitialPlatform] = useState<SocialPlatform>("instagram");
+  const [listInitialFilter, setListInitialFilter]     = useState<ActiveFilter>("all");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [modalOpen, setModalOpen]     = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -1025,14 +1036,29 @@ function AccountSetupSection() {
       {viewMode === "cards" ? (
         <div className="grid grid-cols-4 gap-4">
           {platforms.map((platform) => (
-            <div key={platform.id} className="relative bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-5 flex flex-col">
+            <div
+              key={platform.id}
+              onClick={() => {
+                setListInitialPlatform(cardToListPlatform[platform.id]);
+                setListInitialFilter("all");
+                setViewMode("list");
+              }}
+              className="relative bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-5 flex flex-col cursor-pointer hover:border-gray-200 dark:hover:border-gray-700 transition-colors"
+            >
               {inactiveCounts[platform.id] > 0 && (
-                <div
-                  className="absolute top-3 right-3 w-4 h-4 rounded-full bg-red-500 flex items-center justify-center"
-                  title={`${inactiveCounts[platform.id]} inactive account${inactiveCounts[platform.id] !== 1 ? "s" : ""}`}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setListInitialPlatform(cardToListPlatform[platform.id]);
+                    setListInitialFilter("inactive");
+                    setViewMode("list");
+                  }}
+                  className="absolute top-3 right-3 w-4 h-4 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors"
+                  title={`${inactiveCounts[platform.id]} inactive account${inactiveCounts[platform.id] !== 1 ? "s" : ""} — click to view`}
                 >
                   <span className="text-white font-bold leading-none" style={{ fontSize: "9px" }}>!</span>
-                </div>
+                </button>
               )}
               <span className="text-[11px] text-gray-400 dark:text-gray-600 mb-3">{platform.name}</span>
               <span className="text-5xl font-light text-gray-800 dark:text-gray-100 leading-none tabular-nums">
@@ -1043,7 +1069,12 @@ function AccountSetupSection() {
           ))}
         </div>
       ) : (
-        <AccountsListView onAccountsChange={fetchCounts} />
+        <AccountsListView
+          key={`${listInitialPlatform}-${listInitialFilter}`}
+          onAccountsChange={fetchCounts}
+          initialPlatform={listInitialPlatform}
+          initialFilter={listInitialFilter}
+        />
       )}
     </section>
   );
@@ -1052,7 +1083,7 @@ function AccountSetupSection() {
 // ─── Connections Page ─────────────────────────────────────────────────────────
 export default function ConnectionsPage() {
   return (
-    <div className="bg-white dark:bg-gray-950 font-[var(--font-inter)] flex flex-col">
+    <div className="bg-white dark:bg-gray-950 font-[var(--font-inter)] md:h-[calc(100vh-52px)] md:overflow-hidden flex flex-col">
       <main className="max-w-4xl mx-auto w-full px-10 py-10 flex flex-col gap-10 flex-1">
         <Breadcrumb
           crumbs={[

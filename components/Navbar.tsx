@@ -12,8 +12,7 @@ function ThemeToggle() {
 
   useEffect(() => {
     const saved = localStorage.getItem("theme");
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const isDark = saved === "dark" || (!saved && prefersDark);
+    const isDark = saved === "dark"; // default to light for new browsers, respect saved preference
     document.documentElement.classList.toggle("dark", isDark);
     setDark(isDark);
   }, []);
@@ -143,13 +142,13 @@ export default function Navbar() {
     <>
       <nav className="bg-gray-100 dark:bg-gray-900 flex items-center px-8 justify-between shrink-0" style={{ height: "52px" }}>
         {/* Left: logo + slash + brand */}
-        <div className="flex items-center gap-2">
+        <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
           <div className="w-7 h-7 rounded-full overflow-hidden flex-shrink-0 bg-gray-200">
             <Image src="/aivs-logo.JPG" alt="AIVS Logo" width={28} height={28} className="object-cover w-7 h-7" />
           </div>
           <span className="text-xs text-gray-400 dark:text-gray-600">/</span>
           <span className="text-xs text-gray-500 dark:text-gray-400">Click Creators</span>
-        </div>
+        </Link>
 
         {/* Center: nav links */}
         <div className="flex items-center gap-1">

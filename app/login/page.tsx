@@ -144,7 +144,7 @@ export default function LoginPage() {
             {/* OTP Field */}
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                OTP
+                Pin
               </label>
               <div className="flex justify-center gap-1.5">
                 {[0, 1, 2, 3, 4, 5].map((index) => (
