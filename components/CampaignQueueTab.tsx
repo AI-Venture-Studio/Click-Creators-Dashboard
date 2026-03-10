@@ -889,7 +889,11 @@ function EditSheet({
       target_date: campaign.target_date ? new Date(campaign.target_date) : undefined,
       post_delay: campaign.post_delay,
     });
-    setExistingAttachments(campaign.media_attachments ? [...campaign.media_attachments] : []);
+    setExistingAttachments(
+      campaign.media_attachments
+        ? campaign.media_attachments.filter((a) => a && a.storage_path)
+        : []
+    );
     setNewAttachments([]);
     setRemovedPaths([]);
     setProfileInput("");
