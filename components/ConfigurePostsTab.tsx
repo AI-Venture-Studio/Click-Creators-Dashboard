@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Search, X, ChevronDown, Upload, Film, LayoutGrid } from "lucide-react";
+import { Search, X, ChevronDown, Paperclip, Film, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Platform = "instagram" | "x" | "threads" | "tiktok" | "";
+type Platform = "instagram" | "threads" | "";
 type PostType = "carousel" | "reel";
 
 interface Account {
@@ -31,16 +31,13 @@ interface PostConfig {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PLATFORMS = [
-  { value: "instagram" as Platform, label: "Instagram",   disabled: false },
-  { value: "x"         as Platform, label: "X (Twitter)", disabled: true, note: "coming soon" },
-  { value: "threads"   as Platform, label: "Threads",     disabled: true, note: "coming soon" },
-  { value: "tiktok"    as Platform, label: "TikTok",      disabled: true, note: "coming soon" },
+const PLATFORMS: { value: Platform; label: string; disabled: boolean; note?: string }[] = [
+  { value: "instagram", label: "Instagram",   disabled: false },
+  { value: "threads",   label: "Threads",     disabled: false },
 ];
 
 const PLATFORM_LABELS: Record<string, string> = {
   instagram: "Instagram",
-  x: "X (Twitter)",
   threads: "Threads",
 };
 
@@ -185,7 +182,6 @@ export default function ConfigurePostsTab() {
 
   // UI state
   const [saving, setSaving] = useState(false);
-  const [dragging, setDragging] = useState(false);
 
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -297,13 +293,6 @@ export default function ConfigurePostsTab() {
     });
   };
 
-  // ─── Drag and drop ────────────────────────────────────────────────────────
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    handleFiles(e.dataTransfer.files);
-  };
-
   // ─── Form validation ──────────────────────────────────────────────────────
   const isFormComplete = () => {
     if (!platform) return false;
@@ -396,7 +385,6 @@ export default function ConfigurePostsTab() {
 
   const carouselFull = postType === "carousel" && media.length >= 10;
   const reelFull = postType === "reel" && media.length >= 1;
-  const uploaderFull = carouselFull || reelFull;
 
   const acceptAttr =
     postType === "reel"
@@ -421,10 +409,10 @@ export default function ConfigurePostsTab() {
 
       {/* ── Section 1 — Platform + Post Type ────────────────────────────────── */}
       <div className="px-8 py-6 border-b border-gray-100 dark:border-gray-800">
-        <div className="grid grid-cols-2 gap-6">
+        <div className={`grid ${platform === "threads" ? "grid-cols-1" : "grid-cols-2"} gap-6`}>
 
           {/* Left — Platform */}
-          <div className="border-r border-gray-100 dark:border-gray-800 pr-6">
+          <div className={`${platform !== "threads" ? "border-r border-gray-100 dark:border-gray-800 pr-6" : ""}`}>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
               Campaign Platform
             </label>
@@ -439,61 +427,66 @@ export default function ConfigurePostsTab() {
               placeholder="Select platform…"
               onSelect={(v) => {
                 setPlatform(v as Platform);
+                if (v === "threads") {
+                  setPostType("carousel");
+                }
                 media.forEach((m) => URL.revokeObjectURL(m.previewUrl));
                 setMedia([]);
               }}
             />
           </div>
 
-          {/* Right — Post Type */}
-          <div className="pl-2">
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-              Post Type
-            </label>
-            <div className="flex flex-col gap-3">
-
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="postType"
-                  value="carousel"
-                  checked={postType === "carousel"}
-                  onChange={() => setPostType("carousel")}
-                  className="mt-0.5 accent-gray-700 dark:accent-gray-300"
-                />
-                <div className="flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <LayoutGrid size={12} strokeWidth={1.8} className="text-gray-500 dark:text-gray-400" />
-                    <span className="text-xs text-gray-700 dark:text-gray-300">Carousel</span>
-                  </div>
-                  <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
-                    Multiple photos and/or videos
-                  </p>
-                </div>
+          {/* Right — Post Type (hidden for Threads) */}
+          {platform !== "threads" && (
+            <div className="pl-2">
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+                Post Type
               </label>
+              <div className="flex flex-col gap-3">
 
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="postType"
-                  value="reel"
-                  checked={postType === "reel"}
-                  onChange={() => setPostType("reel")}
-                  className="mt-0.5 accent-gray-700 dark:accent-gray-300"
-                />
-                <div className="flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <Film size={12} strokeWidth={1.8} className="text-gray-500 dark:text-gray-400" />
-                    <span className="text-xs text-gray-700 dark:text-gray-300">Reel</span>
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="postType"
+                    value="carousel"
+                    checked={postType === "carousel"}
+                    onChange={() => setPostType("carousel")}
+                    className="mt-0.5 accent-gray-700 dark:accent-gray-300"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <LayoutGrid size={12} strokeWidth={1.8} className="text-gray-500 dark:text-gray-400" />
+                      <span className="text-xs text-gray-700 dark:text-gray-300">Carousel</span>
+                    </div>
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                      Multiple photos and/or videos
+                    </p>
                   </div>
-                  <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
-                    Single video only
-                  </p>
-                </div>
-              </label>
+                </label>
 
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="postType"
+                    value="reel"
+                    checked={postType === "reel"}
+                    onChange={() => setPostType("reel")}
+                    className="mt-0.5 accent-gray-700 dark:accent-gray-300"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <Film size={12} strokeWidth={1.8} className="text-gray-500 dark:text-gray-400" />
+                      <span className="text-xs text-gray-700 dark:text-gray-300">Reel</span>
+                    </div>
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                      Single video only
+                    </p>
+                  </div>
+                </label>
+
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -502,85 +495,54 @@ export default function ConfigurePostsTab() {
         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
           Post &amp; Caption
         </label>
-        <textarea
-          value={caption}
-          onChange={(e) => setCaption(e.target.value)}
-          placeholder="Write your post caption here…"
-          className="w-full resize-none min-h-[100px] text-xs bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5 text-gray-700 dark:text-gray-300 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600"
-        />
-        <span className="text-[11px] text-gray-400 dark:text-gray-600 mt-1 block">
-          {caption.length} characters
-        </span>
-      </div>
+        <div className="relative">
+          <textarea
+            value={caption}
+            onChange={(e) => setCaption(e.target.value)}
+            placeholder="Write your post caption here…"
+            className="w-full resize-none min-h-[100px] text-xs bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5 pb-9 text-gray-700 dark:text-gray-300 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={carouselFull || reelFull}
+            className="absolute bottom-2.5 right-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors disabled:opacity-30"
+            title="Attach media"
+          >
+            <Paperclip size={14} strokeWidth={1.8} />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple={postType === "carousel"}
+            accept={acceptAttr}
+            className="hidden"
+            onChange={(e) => {
+              handleFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+        </div>
 
-      {/* ── Section 3 — Media Upload ─────────────────────────────────────────── */}
-      <div className="px-8 py-6 border-b border-gray-100 dark:border-gray-800">
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-            {postType === "carousel" ? "Carousel Media" : "Reel Video"}
-          </label>
-          <span className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums">
-            {postType === "carousel"
-              ? `${media.length}/10 files`
-              : media.length === 0
-              ? "No video selected"
-              : "1 video selected"}
+        <div className="flex items-center justify-between mt-1.5">
+          <span className="text-[11px] text-gray-400 dark:text-gray-600">
+            {caption.length} characters
+          </span>
+          <span className="text-[11px] text-gray-400 dark:text-gray-600">
+            {postType === "reel"
+              ? media.length === 0 ? "No video selected" : "1 video selected"
+              : `${media.length}/10 files`}
+            {" · "}
+            {postType === "reel" ? "MP4, MOV, WEBM" : "Images & videos"}
           </span>
         </div>
 
-        {/* Drop zone */}
-        {!uploaderFull && (
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl px-6 py-8 cursor-pointer transition-colors ${
-              dragging
-                ? "border-gray-400 dark:border-gray-500 bg-gray-50 dark:bg-gray-800/60"
-                : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800/40"
-            }`}
-          >
-            <div className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-              {postType === "reel"
-                ? <Film size={16} strokeWidth={1.6} className="text-gray-400 dark:text-gray-500" />
-                : <Upload size={16} strokeWidth={1.6} className="text-gray-400 dark:text-gray-500" />
-              }
-            </div>
-            <div className="text-center">
-              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">
-                {postType === "reel"
-                  ? "Upload a video"
-                  : "Upload photos or videos"}
-              </p>
-              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
-                {postType === "reel"
-                  ? "Drag & drop or click to browse · MP4, MOV, WEBM"
-                  : "Drag & drop or click to browse · Images & videos · Max 10 files"}
-              </p>
-            </div>
-          </div>
-        )}
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple={postType === "carousel"}
-          accept={acceptAttr}
-          className="hidden"
-          onChange={(e) => {
-            handleFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-
-        {/* Previews */}
         {media.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-3">
             {media.map((m, i) => (
               <div
                 key={i}
-                className="relative group w-20 h-20 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gray-100 dark:bg-gray-800"
+                className="relative group w-16 h-16 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gray-100 dark:bg-gray-800"
               >
                 {m.isVideo ? (
                   <div className="w-full h-full flex items-center justify-center">
@@ -603,17 +565,6 @@ export default function ConfigurePostsTab() {
                 </button>
               </div>
             ))}
-
-            {/* Add more button for carousel when not full */}
-            {postType === "carousel" && !carouselFull && (
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="w-20 h-20 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 flex items-center justify-center text-gray-400 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-500 transition-colors flex-shrink-0"
-              >
-                <Upload size={16} strokeWidth={1.6} />
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -770,10 +721,12 @@ export default function ConfigurePostsTab() {
                 }
               />
               <SummaryRow label="Platform" value={PLATFORM_LABELS[platform] ?? platform} />
-              <SummaryRow
-                label="Post Type"
-                value={postType === "carousel" ? "Carousel" : "Reel"}
-              />
+              {platform !== "threads" && (
+                <SummaryRow
+                  label="Post Type"
+                  value={postType === "carousel" ? "Carousel" : "Reel"}
+                />
+              )}
               <SummaryRow
                 label="Media"
                 value={

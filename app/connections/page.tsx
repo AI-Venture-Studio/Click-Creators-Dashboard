@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  Plus, X, LayoutGrid, List, ChevronDown,
+  Plus, X, LayoutGrid, List, ChevronDown, ChevronLeft, ChevronRight,
   Search, MoreVertical, Pencil, Trash2,
   Loader2, Users, Info,
 } from "lucide-react";
@@ -682,7 +682,9 @@ function AccountsListView({ onAccountsChange, initialPlatform, initialFilter }: 
   const [isDeleteOpen, setIsDeleteOpen]       = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<SocialAccount | null>(null);
   const [addDropdownOpen, setAddDropdownOpen] = useState(false);
+  const [currentPage, setCurrentPage]         = useState(1);
   const addDropdownRef = useRef<HTMLDivElement>(null);
+  const PAGE_SIZE = 10;
 
   useEffect(() => {
     if (!addDropdownOpen) return;
@@ -735,6 +737,8 @@ function AccountsListView({ onAccountsChange, initialPlatform, initialFilter }: 
     .sort((a, b) => Number(a.is_active) - Number(b.is_active));
 
   const hasFilters = searchQuery !== "" || activeFilter !== "all";
+  const totalPages = Math.max(1, Math.ceil(filteredAccounts.length / PAGE_SIZE));
+  const paginatedAccounts = filteredAccounts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl overflow-hidden">
@@ -769,7 +773,7 @@ function AccountsListView({ onAccountsChange, initialPlatform, initialFilter }: 
             key={p.id}
             type="button"
             disabled={p.disabled}
-            onClick={() => { setSelectedPlatform(p.id); setSearchQuery(""); setActiveFilter("all"); }}
+            onClick={() => { setSelectedPlatform(p.id); setSearchQuery(""); setActiveFilter("all"); setCurrentPage(1); }}
             className={`relative px-3 py-3 text-xs transition-colors flex items-center justify-center gap-1.5 ${
               p.disabled
                 ? "text-gray-300 dark:text-gray-700 cursor-not-allowed"
@@ -802,7 +806,7 @@ function AccountsListView({ onAccountsChange, initialPlatform, initialFilter }: 
           <input
             type="text"
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
             placeholder="Search accounts..."
             className="w-full text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg pl-7 pr-7 py-1.5 text-gray-700 dark:text-gray-300 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600"
           />
@@ -819,7 +823,7 @@ function AccountsListView({ onAccountsChange, initialPlatform, initialFilter }: 
             { value: "inactive", label: "Inactive Only" },
           ]}
           value={activeFilter}
-          onSelect={v => setActiveFilter(v as ActiveFilter)}
+          onSelect={v => { setActiveFilter(v as ActiveFilter); setCurrentPage(1); }}
           width={140}
         />
       </div>
@@ -878,16 +882,57 @@ function AccountsListView({ onAccountsChange, initialPlatform, initialFilter }: 
             )}
           </div>
         ) : (
-          <div className="flex flex-col max-h-[400px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full">
-            {filteredAccounts.map(account => (
-              <AccountRow
-                key={account.id}
-                account={account}
-                onEdit={() => { setSelectedAccount(account); setIsEditModalOpen(true); }}
-                onDelete={() => { setSelectedAccount(account); setIsDeleteOpen(true); }}
-              />
-            ))}
-          </div>
+          <>
+            <div className="flex flex-col">
+              {paginatedAccounts.map(account => (
+                <AccountRow
+                  key={account.id}
+                  account={account}
+                  onEdit={() => { setSelectedAccount(account); setIsEditModalOpen(true); }}
+                  onDelete={() => { setSelectedAccount(account); setIsDeleteOpen(true); }}
+                />
+              ))}
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-4 mt-1 border-t border-gray-100 dark:border-gray-800">
+                <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                  {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filteredAccounts.length)} of {filteredAccounts.length}
+                </p>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(p => p - 1)}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft size={14} strokeWidth={1.8} />
+                  </button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() => setCurrentPage(page)}
+                      className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs transition-colors ${
+                        page === currentPage
+                          ? "bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium"
+                          : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(p => p + 1)}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ChevronRight size={14} strokeWidth={1.8} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -1083,7 +1128,7 @@ function AccountSetupSection() {
 // ─── Connections Page ─────────────────────────────────────────────────────────
 export default function ConnectionsPage() {
   return (
-    <div className="bg-white dark:bg-gray-950 font-[var(--font-inter)] md:h-[calc(100vh-52px)] md:overflow-hidden flex flex-col">
+    <div className="bg-white dark:bg-gray-950 font-[var(--font-inter)] md:min-h-[calc(100vh-52px)] flex flex-col">
       <main className="max-w-4xl mx-auto w-full px-10 py-10 flex flex-col gap-10 flex-1">
         <Breadcrumb
           crumbs={[
