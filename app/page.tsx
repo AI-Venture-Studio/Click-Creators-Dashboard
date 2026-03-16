@@ -94,7 +94,7 @@ function AppIcon({
 const apps = [
   { id: "post-bot",        iconSrc: "/post-bot-icon.png",        name: "Post Bot",        href: "/post-bot",        disabled: false },
   { id: "comment-bot",     iconSrc: "/comment-bot-icon.png",     name: "Comment Bot",     href: "/comment-bot",     disabled: false },
-  { id: "follower-scraper", iconSrc: "/follower-scraper-icon.png", name: "Follower Scraper", href: "/follower-scraper", disabled: false },
+  { id: "follower-scraper", iconSrc: "/follower-scraper-icon.png", name: "Follower Scraper", href: "/follower-scraper", disabled: true },
   { id: "viral-app",       iconSrc: "/viral-app-icon.png",       name: "Viral App",       href: "/viral-app",       disabled: true  },
   { id: "account-scraper", iconSrc: "/account-scraper-icon.png", name: "Account Scraper", href: "/account-scraper", disabled: true  },
 ];
