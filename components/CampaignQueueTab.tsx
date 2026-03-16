@@ -563,7 +563,7 @@ function QueueRow({
   onDragOver: (e: React.DragEvent) => void;
   onDragEnd: () => void;
   onDrop: () => void;
-  onStart: () => void;
+  onStart?: () => void;
   onEdit: () => void;
   onRemove: () => void;
 }) {
@@ -650,8 +650,9 @@ function QueueRow({
         ) : (
           <button
             onClick={onStart}
-            className="p-1 text-green-600 hover:text-green-700 dark:text-green-500 dark:hover:text-green-400 transition-colors"
-            title="Start campaign"
+            disabled={!onStart}
+            className={`p-1 transition-colors ${onStart ? "text-green-600 hover:text-green-700 dark:text-green-500 dark:hover:text-green-400" : "text-gray-300 dark:text-gray-600 cursor-not-allowed"}`}
+            title={onStart ? "Start campaign" : "Auto-queue is running"}
           >
             <Play size={13} strokeWidth={1.8} fill="currentColor" />
           </button>
@@ -1489,6 +1490,16 @@ export default function CampaignQueueTab() {
   const [failedPage, setFailedPage]     = useState(1);
   const [abortedPage, setAbortedPage]   = useState(1);
 
+  // ─── Auto-queue ("Run All") state ─────────────────────────────────────────
+  const [autoQueueActive, setAutoQueueActive] = useState(false);
+  const autoQueueActiveRef = useRef(false);
+  const autoQueueLockRef = useRef<string | null>(null);
+  const itemsRef = useRef(items);
+  const consecutiveFailsRef = useRef(0);
+
+  useEffect(() => { autoQueueActiveRef.current = autoQueueActive; }, [autoQueueActive]);
+  useEffect(() => { itemsRef.current = items; }, [items]);
+
   // ─── Fetch campaigns from Supabase ──────────────────────────────────────────
 
   const fetchCampaigns = useCallback(async () => {
@@ -1832,6 +1843,115 @@ export default function CampaignQueueTab() {
     setIsEditSheetOpen(false);
   };
 
+  // ─── Auto-queue helpers ─────────────────────────────────────────────────────
+
+  const moveToEndOfQueue = useCallback(async (id: string) => {
+    const currentItems = itemsRef.current;
+    const maxPos = Math.max(...currentItems.map((c) => c.queue_position), 0);
+    const newPos = maxPos + 1;
+
+    await supabase
+      .from("comment_campaigns")
+      .update({ queue_position: newPos, status: "not-started" })
+      .eq("campaign_id", id);
+
+    setItems((prev) =>
+      prev.map((c) =>
+        c.id === id
+          ? { ...c, status: "not-started" as CampaignStatus, queue_position: newPos, updated_at: new Date().toISOString() }
+          : c
+      )
+    );
+  }, []);
+
+  const advanceQueue = useCallback(async () => {
+    if (!autoQueueActiveRef.current) return;
+    if (autoQueueLockRef.current) return;
+
+    const currentItems = itemsRef.current;
+    const queue = currentItems
+      .filter((c) => c.status === "not-started")
+      .sort((a, b) => a.queue_position - b.queue_position);
+
+    if (queue.length === 0) {
+      setAutoQueueActive(false);
+      autoQueueActiveRef.current = false;
+      autoQueueLockRef.current = null;
+      consecutiveFailsRef.current = 0;
+      toast.info("Auto-queue finished — no more campaigns in queue");
+      return;
+    }
+
+    if (consecutiveFailsRef.current >= queue.length) {
+      setAutoQueueActive(false);
+      autoQueueActiveRef.current = false;
+      autoQueueLockRef.current = null;
+      consecutiveFailsRef.current = 0;
+      toast.error("Auto-queue stopped — all remaining campaigns failed to start");
+      return;
+    }
+
+    const next = queue[0];
+    autoQueueLockRef.current = next.id;
+
+    try {
+      const res = await fetch(`${BOT_URL}/api/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campaign_id: next.id }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.warning(`Skipped campaign — ${data.error || "unavailable"}. Moved to end of queue.`);
+        await moveToEndOfQueue(next.id);
+        consecutiveFailsRef.current += 1;
+        autoQueueLockRef.current = null;
+        setTimeout(() => advanceQueue(), 300);
+        return;
+      }
+
+      consecutiveFailsRef.current = 0;
+      toast.success(`Auto-queue: campaign started on ${PLATFORM_LABELS[next.platform]}`);
+      setItems((prev) =>
+        prev.map((c) =>
+          c.id === next.id
+            ? { ...c, status: "in-progress" as CampaignStatus, updated_at: new Date().toISOString() }
+            : c
+        )
+      );
+    } catch {
+      toast.error("Could not reach the bot server — stopping auto-queue");
+      setAutoQueueActive(false);
+      autoQueueActiveRef.current = false;
+      autoQueueLockRef.current = null;
+      consecutiveFailsRef.current = 0;
+    }
+  }, [moveToEndOfQueue]);
+
+  const handleRunAll = useCallback(() => {
+    if (notStarted.length === 0) {
+      toast.info("No campaigns in queue");
+      return;
+    }
+    if (running.length > 0) {
+      toast.warning("A campaign is already running — wait for it to finish or abort it");
+      return;
+    }
+    setAutoQueueActive(true);
+    autoQueueActiveRef.current = true;
+    consecutiveFailsRef.current = 0;
+    advanceQueue();
+  }, [notStarted.length, running.length, advanceQueue]);
+
+  const handleStopQueue = useCallback(() => {
+    setAutoQueueActive(false);
+    autoQueueActiveRef.current = false;
+    autoQueueLockRef.current = null;
+    consecutiveFailsRef.current = 0;
+    toast.info("Auto-queue stopped — current campaign will finish");
+  }, []);
+
   // ─── Tab definitions ────────────────────────────────────────────────────────
 
   const tabDef: { id: TabId; label: string }[] = [
@@ -1866,6 +1986,25 @@ export default function CampaignQueueTab() {
 
           {/* Controls */}
           <div className="flex items-center gap-2">
+            {notStarted.length > 0 && (
+              <button
+                type="button"
+                onClick={autoQueueActive ? handleStopQueue : handleRunAll}
+                disabled={running.length > 0 && !autoQueueActive}
+                className={`flex items-center gap-1.5 h-7 px-3 rounded-lg text-[11px] font-medium transition-colors ${
+                  autoQueueActive
+                    ? "bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900"
+                    : "bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900"
+                } disabled:opacity-40 disabled:cursor-not-allowed`}
+                title={autoQueueActive ? "Stop auto-queue" : "Run all queued campaigns sequentially"}
+              >
+                {autoQueueActive ? (
+                  <><StopCircle size={12} strokeWidth={1.8} /> Stop Queue</>
+                ) : (
+                  <><Play size={12} strokeWidth={1.8} /> Run All</>
+                )}
+              </button>
+            )}
             <button
               type="button"
               onClick={handleRefresh}
@@ -1924,6 +2063,31 @@ export default function CampaignQueueTab() {
                     item.id === c.id ? { ...item, status, updated_at: new Date().toISOString() } : item
                   )
                 );
+
+                // Auto-queue: advance to next campaign
+                if (autoQueueActiveRef.current) {
+                  if (status === "aborted") {
+                    setAutoQueueActive(false);
+                    autoQueueActiveRef.current = false;
+                    autoQueueLockRef.current = null;
+                    consecutiveFailsRef.current = 0;
+                    toast.info("Auto-queue stopped — campaign was aborted");
+                    return;
+                  }
+                  if (status === "failed") {
+                    moveToEndOfQueue(c.id).then(() => {
+                      consecutiveFailsRef.current += 1;
+                      autoQueueLockRef.current = null;
+                      setTimeout(() => advanceQueue(), 500);
+                    });
+                    return;
+                  }
+                  if (status === "completed") {
+                    consecutiveFailsRef.current = 0;
+                    autoQueueLockRef.current = null;
+                    setTimeout(() => advanceQueue(), 500);
+                  }
+                }
               }}
             />
           ))}
@@ -1961,7 +2125,7 @@ export default function CampaignQueueTab() {
                           onDragOver={(e) => handleDragOver(e, c.id, nextId)}
                           onDragEnd={handleDragEnd}
                           onDrop={handleDrop}
-                          onStart={() => handleStart(c.id)}
+                          onStart={autoQueueActive ? undefined : () => handleStart(c.id)}
                           onEdit={() => handleEdit(c)}
                           onRemove={() => handleRemove(c.id)}
                         />
