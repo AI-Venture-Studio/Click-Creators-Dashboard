@@ -339,6 +339,8 @@ function PostProgressPanel({
   const [latestSentence, setLatestSentence] = useState("Starting campaign…");
   const [postCount, setPostCount] = useState(0);
   const notifiedLocked = useRef(new Set<string>());
+  const onStatusChangeRef = useRef(onStatusChange);
+  onStatusChangeRef.current = onStatusChange;
 
   useEffect(() => {
     let active = true;
@@ -367,15 +369,15 @@ function PostProgressPanel({
         }
 
         if (data.status === "completed") {
-          onStatusChange("completed");
+          onStatusChangeRef.current("completed");
           toast.success(`Campaign completed — ${data.post_count ?? 0} posts published`);
           notifiedLocked.current.clear();
         } else if (data.status === "error") {
-          onStatusChange("failed");
+          onStatusChangeRef.current("failed");
           toast.error("Campaign failed — check account status");
           notifiedLocked.current.clear();
         } else if (data.status === "aborted") {
-          onStatusChange("aborted");
+          onStatusChangeRef.current("aborted");
           toast.warning("Campaign aborted");
           notifiedLocked.current.clear();
         }
@@ -387,7 +389,8 @@ function PostProgressPanel({
     poll();
     const interval = setInterval(poll, 2500);
     return () => { active = false; clearInterval(interval); };
-  }, [campaign.id, onStatusChange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaign.id]);
 
   return (
     <div className="px-8 py-3 bg-blue-50/40 dark:bg-blue-950/20 border-t border-blue-100 dark:border-blue-900/60">

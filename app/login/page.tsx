@@ -156,16 +156,38 @@ export default function LoginPage() {
                       maxLength={1}
                       value={otp[index] || ""}
                       onChange={(e) => {
-                        const newOtp = otp.split("");
-                        newOtp[index] = e.target.value.replace(/\D/g, "");
-                        setOtp(newOtp.join(""));
+                        const digit = e.target.value.replace(/\D/g, "");
+                        const newOtp = otp.padEnd(6, " ").split("");
+                        newOtp[index] = digit;
+                        setOtp(newOtp.join("").trimEnd());
 
                         // Auto-focus next input
-                        if (e.target.value && index < 5) {
+                        if (digit && index < 5) {
                           const nextInput = document.querySelector(
                             `input[data-otp-index="${index + 1}"]`
                           ) as HTMLInputElement;
                           nextInput?.focus();
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Backspace") {
+                          if (!otp[index] && index > 0) {
+                            // Field is empty — clear previous and move focus back
+                            e.preventDefault();
+                            const newOtp = otp.padEnd(6, " ").split("");
+                            newOtp[index - 1] = " ";
+                            setOtp(newOtp.join("").trimEnd());
+                            const prevInput = document.querySelector(
+                              `input[data-otp-index="${index - 1}"]`
+                            ) as HTMLInputElement;
+                            prevInput?.focus();
+                          } else {
+                            // Field has a value — clear it (default behavior)
+                            e.preventDefault();
+                            const newOtp = otp.padEnd(6, " ").split("");
+                            newOtp[index] = " ";
+                            setOtp(newOtp.join("").trimEnd());
+                          }
                         }
                       }}
                       data-otp-index={index}
