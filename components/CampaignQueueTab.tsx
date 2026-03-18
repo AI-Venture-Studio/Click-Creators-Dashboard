@@ -316,13 +316,16 @@ function CampaignProgressPanel({
   const [latestSentence, setLatestSentence] = useState("Starting campaign…");
   const [commentCount, setCommentCount] = useState(0);
   const notifiedLocked = useRef(new Set<string>());
+  const statusFiredRef = useRef(false);
   const onStatusChangeRef = useRef(onStatusChange);
   onStatusChangeRef.current = onStatusChange;
 
   useEffect(() => {
     let active = true;
+    statusFiredRef.current = false;
 
     const poll = async () => {
+      if (statusFiredRef.current || !active) return;
       try {
         const res = await fetch(`${BOT_URL}/api/progress/current`);
         if (!res.ok || !active) return;
@@ -345,15 +348,18 @@ function CampaignProgressPanel({
           }
         }
 
-        if (data.status === "completed") {
+        if (data.status === "completed" && !statusFiredRef.current) {
+          statusFiredRef.current = true;
           onStatusChangeRef.current("completed");
           toast.success(`Campaign completed — ${data.comment_count ?? 0} comments posted`);
           notifiedLocked.current.clear();
-        } else if (data.status === "error") {
+        } else if (data.status === "error" && !statusFiredRef.current) {
+          statusFiredRef.current = true;
           onStatusChangeRef.current("failed");
           toast.error("Campaign failed — check account status");
           notifiedLocked.current.clear();
-        } else if (data.status === "aborted") {
+        } else if (data.status === "aborted" && !statusFiredRef.current) {
+          statusFiredRef.current = true;
           onStatusChangeRef.current("aborted");
           toast.warning("Campaign aborted");
           notifiedLocked.current.clear();
